@@ -1,0 +1,74 @@
+# Installs Agora on real Mac and Linux machines the way a person would, from the live site,
+# and checks that the installed program starts. Run by hand (Actions → Run workflow) or on
+# every push to this repository.
+name: Mac and Linux installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Where Agora is served
+        default: https://app.alavision.net
+  push:
+
+jobs:
+  install:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Apple Silicon (two macOS versions), an Intel Mac, and Linux for comparison.
+        os: [macos-latest, macos-14, macos-15-intel, ubuntu-latest]
+    env:
+      SITE: ${{ inputs.site || 'https://app.alavision.net' }}
+      AGORA_NO_START: '1'
+    steps:
+      - name: What this machine is
+        run: |
+          uname -sm
+          sw_vers 2>/dev/null || cat /etc/os-release | head -2
+
+      - name: Install the way the page says
+        run: sh -c "$(curl -fsSL "$SITE/downloads/install.sh")"
+
+      - name: The runtime is the right kind for this machine
+        run: |
+          node="$(ls -d "$HOME"/.agora-bridge/runtime/node-*/bin/node)"
+          file "$node"
+          "$node" --version
+          "$node" -p "process.platform + ' ' + process.arch"
+
+      - name: The program starts
+        run: |
+          "$HOME/.agora-bridge/agora" help | tee help.txt
+          grep -q "agora-bridge" help.txt
+          "$HOME/.agora-bridge/agora" status | tee status.txt
+          grep -q "Not connected" status.txt
+
+      - name: A wrong connection code is refused with a readable message
+        run: |
+          if "$HOME/.agora-bridge/agora" connect agora-not-a-real-code > out.txt 2>&1; then
+            echo "it should have refused"; cat out.txt; exit 1
+          fi
+          cat out.txt
+          grep -q "does not look like a connection code" out.txt
+
+      - name: Without a keyboard it says what to do instead of hanging
+        run: |
+          if "$HOME/.agora-bridge/agora" < /dev/null > out.txt 2>&1; then
+            echo "it should have stopped"; cat out.txt; exit 1
+          fi
+          cat out.txt
+          grep -q "not connected yet" out.txt
+
+      - name: Installing again reuses the runtime
+        run: |
+          sh -c "$(curl -fsSL "$SITE/downloads/install.sh")" | tee again.txt
+          if grep -q "downloading the Node.js runtime" again.txt; then echo "it downloaded the runtime twice"; exit 1; fi
+
+      - name: Nothing was installed outside the home folder
+        run: |
+          ls -la "$HOME/.agora-bridge"
+          test "$(stat -f '%Lp' "$HOME/.agora-bridge" 2>/dev/null || stat -c '%a' "$HOME/.agora-bridge")" = "700"
