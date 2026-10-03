@@ -1,9 +1,0 @@
-# Smallest possible job: tells us whether this account can run anything at all.
-name: Probe
-on: push
-jobs:
-  hello:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - run: uname -sm
